@@ -29,7 +29,8 @@ const Home = () => {
 
     fetchData();
   }, []);
-
+ 
+  
   // Agrupa as vendas por cliente (usando o campo "Cliente")
   const groupedClients = data.reduce((acc, sale) => {
     const clientName = sale['Cliente'];
