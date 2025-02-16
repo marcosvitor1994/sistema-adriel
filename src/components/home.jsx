@@ -1,9 +1,13 @@
 import axios from 'axios';
 import React, { useEffect, useState } from 'react';
-import { Accordion, Container, Row, Col, Table } from 'react-bootstrap';
+import { Accordion, Container, Row, Col, Table, Button } from 'react-bootstrap';
+import OrderModal from './OrderModal';
+import PerfilVendedor from './PerfilVendedor';
 
 const Home = () => {
   const [data, setData] = useState([]);
+  const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+  const [selectedClient, setSelectedClient] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -81,8 +85,16 @@ const Home = () => {
     return `${day}/${month}/${year}`;
   };
 
+  // Função para fechar o modal e limpar o cliente selecionado
+  const handleCloseModal = () => {
+    setIsOrderModalOpen(false);
+    setSelectedClient(null);
+  };
+
   return (
     <Container className="mt-4">
+      <PerfilVendedor data={data} />
+
       <h2 className="mb-4">Clientes</h2>
       <Accordion defaultActiveKey="0">
         {Object.keys(groupedClients).map((clientName, idx) => {
@@ -133,11 +145,28 @@ const Home = () => {
                     ))}
                   </tbody>
                 </Table>
+                <Button 
+                  variant="primary"
+                  onClick={() => {
+                    setSelectedClient(clientInfo);
+                    setIsOrderModalOpen(true);
+                  }}
+                >
+                  Novo Pedido
+                </Button>
               </Accordion.Body>
             </Accordion.Item>
           );
         })}
       </Accordion>
+      
+      {selectedClient && (
+        <OrderModal 
+          client={selectedClient}
+          isOpen={isOrderModalOpen}
+          onClose={handleCloseModal}
+        />
+      )}
     </Container>
   );
 };
