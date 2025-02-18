@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Button, Form, Table } from 'react-bootstrap';
+import { Modal, Button, Form, Table, Card } from 'react-bootstrap';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
@@ -7,6 +7,7 @@ const OrderModal = ({ client, isOpen, onClose }) => {
   const [products, setProducts] = useState([]);
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [orderTotal, setOrderTotal] = useState(0);
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
 
   // Estados para forma de pagamento
   const [paymentMethod, setPaymentMethod] = useState('avista'); // 'avista' ou 'parcelado'
@@ -21,6 +22,18 @@ const OrderModal = ({ client, isOpen, onClose }) => {
     "30/50/70": [30, 50, 70],
     "10/20/30/40/50/60/70/80/90/100": [10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
   };
+
+  // Listener para atualizar windowWidth quando a janela é redimensionada
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowWidth(window.innerWidth);
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
   // Atualiza as datas das parcelas quando o método de pagamento ou a opção de parcelamento mudar
   useEffect(() => {
@@ -153,11 +166,11 @@ const OrderModal = ({ client, isOpen, onClose }) => {
   // Função que gera o PDF do pedido, incluindo os dados de pagamento
   const generatePDF = (orderData) => {
     const doc = new jsPDF();
-
+  
     // Título do documento
     doc.setFontSize(18);
     doc.text('Pedido', 14, 22);
-
+  
     // Informações do Cliente
     doc.setFontSize(12);
     doc.text(`Cliente: ${client.Cliente}`, 14, 32);
@@ -165,7 +178,7 @@ const OrderModal = ({ client, isOpen, onClose }) => {
     doc.text(`Endereço: ${client.Endereco}`, 14, 48);
     doc.text(`Telefone: ${client.Telefone}`, 14, 56);
     doc.text(`Data: ${new Date().toLocaleDateString()}`, 14, 64);
-
+  
     // Informações de Pagamento
     let paymentY = 72;
     doc.text(`Forma de Pagamento: ${paymentMethod === 'avista' ? 'À Vista' : 'Parcelado'}`, 14, paymentY);
@@ -178,14 +191,11 @@ const OrderModal = ({ client, isOpen, onClose }) => {
     } else {
       paymentY += 8;
     }
-
-    // Linha divisória abaixo das informações de pagamento
-    doc.line(14, paymentY, 196, paymentY);
-
-    // Tabela de Produtos utilizando autoTable
+  
+    // Tabela de Produtos
     const tableColumn = ["Produto", "Quantidade", "Valor Unit.", "Total"];
     const tableRows = [];
-
+  
     orderData.products.forEach(item => {
       const prodInfo = products.find(p => p.id === item.product);
       const prodName = prodInfo ? prodInfo.name : 'Não definido';
@@ -197,18 +207,148 @@ const OrderModal = ({ client, isOpen, onClose }) => {
       ];
       tableRows.push(rowData);
     });
-
+  
     doc.autoTable({
       startY: paymentY + 6,
       head: [tableColumn],
       body: tableRows,
     });
-
+  
     const finalY = doc.lastAutoTable.finalY || paymentY + 6;
     doc.text(`Total do Pedido: R$ ${orderData.total.toFixed(2)}`, 14, finalY + 10);
-
-    // Salva o PDF
-    doc.save('pedido.pdf');
+  
+    // Criar um Blob URL para compartilhar sem baixar
+    const pdfBlob = doc.output('blob');
+    const pdfURL = URL.createObjectURL(pdfBlob);
+  
+    // Criar link de compartilhamento do WhatsApp
+    const whatsappMessage = `Olá, segue o pedido de ${client.Cliente}`;
+    const whatsappURL = `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappMessage)}&phone=`; // Adicione um número de telefone se necessário
+  
+    // Abrir o WhatsApp Web com a mensagem e o PDF
+    window.open(whatsappURL, '_blank');
+  
+    // Criar botão para compartilhar via WhatsApp
+    const shareButton = document.createElement('a');
+    shareButton.href = pdfURL;
+    shareButton.download = 'pedido.pdf';
+    shareButton.target = '_blank';
+    shareButton.click();
+  };
+  
+  // Nova função para renderizar os itens de forma responsiva
+  const renderProductItems = () => {
+    // Em telas pequenas, mostramos cards em vez de linhas de tabela
+    if (windowWidth < 768) {
+      return (
+        <div>
+          {selectedProducts.map((item, index) => (
+            <Card key={item.id} className="mb-3 product-card">
+              <Card.Body>
+                <Form.Group className="mb-2">
+                  <Form.Label>Produto</Form.Label>
+                  <Form.Select
+                    value={item.product}
+                    onChange={(e) => updateProduct(index, 'product', e.target.value)}
+                  >
+                    <option value="">Selecione um produto</option>
+                    {products.map((product, idx) => (
+                      <option key={idx} value={product.id}>
+                        {product.name} {product.price && `(R$ ${product.price.toFixed(2)})`}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+                
+                <div className="row">
+                  <div className="col-6">
+                    <Form.Group className="mb-2">
+                      <Form.Label>Quantidade</Form.Label>
+                      <Form.Control
+                        type="number"
+                        value={item.quantity}
+                        onChange={(e) => updateProduct(index, 'quantity', parseFloat(e.target.value) || 0)}
+                      />
+                    </Form.Group>
+                  </div>
+                  <div className="col-6">
+                    <Form.Group className="mb-2">
+                      <Form.Label>Valor Unit.</Form.Label>
+                      <Form.Control
+                        type="number"
+                        value={item.unitPrice}
+                        onChange={(e) => updateProduct(index, 'unitPrice', parseFloat(e.target.value) || 0)}
+                      />
+                    </Form.Group>
+                  </div>
+                </div>
+                
+                <div className="d-flex justify-content-between align-items-center mt-2">
+                  <div className="fw-bold">Total: R$ {item.total.toFixed(2)}</div>
+                  <Button variant="danger" size="sm" onClick={() => removeProduct(index)}>
+                    Remover
+                  </Button>
+                </div>
+              </Card.Body>
+            </Card>
+          ))}
+        </div>
+      );
+    } else {
+      // Em telas maiores, mantemos a tabela original
+      return (
+        <Table responsive striped bordered hover className="mb-4">
+          <thead>
+            <tr>
+              <th>Produto</th>
+              <th>Quantidade</th>
+              <th>Valor Unit.</th>
+              <th>Total</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {selectedProducts.map((item, index) => (
+              <tr key={item.id}>
+                <td>
+                  <Form.Select
+                    value={item.product}
+                    onChange={(e) => updateProduct(index, 'product', e.target.value)}
+                  >
+                    <option value="">Selecione um produto</option>
+                    {products.map((product, idx) => (
+                      <option key={idx} value={product.id}>
+                        {product.name} {product.price && `(R$ ${product.price.toFixed(2)})`}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </td>
+                <td>
+                  <Form.Control
+                    type="number"
+                    value={item.quantity}
+                    onChange={(e) => updateProduct(index, 'quantity', parseFloat(e.target.value) || 0)}
+                  />
+                </td>
+                <td>
+                  <Form.Control
+                    type="number"
+                    value={item.unitPrice}
+                    onChange={(e) => updateProduct(index, 'unitPrice', parseFloat(e.target.value) || 0)}
+                  />
+                </td>
+                <td>R$ {item.total.toFixed(2)}</td>
+                <td>
+                  <Button variant="danger" size="sm" onClick={() => removeProduct(index)}>
+                    Remover
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      );
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -235,90 +375,45 @@ const OrderModal = ({ client, isOpen, onClose }) => {
   };
 
   return (
-    <Modal show={isOpen} onHide={onClose} size="xl">
+    <Modal show={isOpen} onHide={onClose} size="xl" className="order-modal">
       <Modal.Header closeButton>
         <Modal.Title>Novo Pedido</Modal.Title>
       </Modal.Header>
       
       <Modal.Body>
         <Form onSubmit={handleSubmit}>
-          {/* Informações do Cliente */}
+          {/* Informações do Cliente - ajustada para melhor responsividade */}
           <div className="mb-4">
-            <Form.Group className="row mb-3">
-              <div className="col-md-6">
-                <Form.Label>Nome</Form.Label>
-                <Form.Control type="text" value={client.Cliente} disabled />
-              </div>
-              <div className="col-md-6">
-                <Form.Label>CNPJ</Form.Label>
-                <Form.Control type="text" value={client.CNPJ} disabled />
-              </div>
+            <h5 className="mb-3">Informações do Cliente</h5>
+            <Form.Group className="mb-3">
+              <Form.Label>Nome</Form.Label>
+              <Form.Control type="text" value={client.Cliente} disabled />
             </Form.Group>
-            <Form.Group className="row">
-              <div className="col-md-6">
-                <Form.Label>Endereço</Form.Label>
-                <Form.Control type="text" value={client.Endereco} disabled />
-              </div>
-              <div className="col-md-6">
-                <Form.Label>Telefone</Form.Label>
-                <Form.Control type="text" value={client.Telefone} disabled />
-              </div>
+            <Form.Group className="mb-3">
+              <Form.Label>CNPJ</Form.Label>
+              <Form.Control type="text" value={client.CNPJ} disabled />
             </Form.Group>
+            <div className="row">
+              <div className="col-md-6">
+                <Form.Group className="mb-3">
+                  <Form.Label>Endereço</Form.Label>
+                  <Form.Control type="text" value={client.Endereco} disabled />
+                </Form.Group>
+              </div>
+              <div className="col-md-6">
+                <Form.Group className="mb-3">
+                  <Form.Label>Telefone</Form.Label>
+                  <Form.Control type="text" value={client.Telefone} disabled />
+                </Form.Group>
+              </div>
+            </div>
           </div>
 
-          {/* Produtos */}
-          <Table responsive striped bordered hover className="mb-4">
-            <thead>
-              <tr>
-                <th>Produto</th>
-                <th>Quantidade</th>
-                <th>Valor Unit.</th>
-                <th>Total</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {selectedProducts.map((item, index) => (
-                <tr key={item.id}>
-                  <td>
-                    <Form.Select
-                      value={item.product}
-                      onChange={(e) => updateProduct(index, 'product', e.target.value)}
-                    >
-                      <option value="">Selecione um produto</option>
-                      {products.map((product, idx) => (
-                        <option key={idx} value={product.id}>
-                          {product.name} {product.price && `(R$ ${product.price.toFixed(2)})`}
-                        </option>
-                      ))}
-                    </Form.Select>
-                  </td>
-                  <td>
-                    <Form.Control
-                      type="number"
-                      value={item.quantity}
-                      onChange={(e) => updateProduct(index, 'quantity', parseFloat(e.target.value))}
-                    />
-                  </td>
-                  <td>
-                    <Form.Control
-                      type="number"
-                      value={item.unitPrice}
-                      onChange={(e) => updateProduct(index, 'unitPrice', parseFloat(e.target.value))}
-                    />
-                  </td>
-                  <td>R$ {item.total.toFixed(2)}</td>
-                  <td>
-                    <Button variant="danger" size="sm" onClick={() => removeProduct(index)}>
-                      Remover
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
+          {/* Produtos - usando a função de renderização responsiva */}
+          <h5 className="mb-3">Produtos</h5>
+          {renderProductItems()}
 
-          <Button variant="primary" onClick={addProductToOrder} className="mb-4">
+          <Button variant="primary" onClick={addProductToOrder} className="mb-4 mt-2">
             Adicionar Produto
           </Button>
 
@@ -329,11 +424,11 @@ const OrderModal = ({ client, isOpen, onClose }) => {
 
           {/* Opções de Pagamento */}
           <div className="mt-4">
+            <h5 className="mb-3">Forma de Pagamento</h5>
             <Form.Group className="mb-3">
-              <Form.Label>Forma de Pagamento</Form.Label>
               <div>
                 <Form.Check
-                  inline
+                  className="mb-2"
                   type="radio"
                   label="À Vista"
                   name="paymentMethod"
@@ -342,7 +437,6 @@ const OrderModal = ({ client, isOpen, onClose }) => {
                   onChange={(e) => setPaymentMethod(e.target.value)}
                 />
                 <Form.Check
-                  inline
                   type="radio"
                   label="Parcelado"
                   name="paymentMethod"

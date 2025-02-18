@@ -2,7 +2,6 @@ import React from 'react';
 import { Card, Container, Row, Col } from 'react-bootstrap';
 
 const PerfilVendedor = ({ data }) => {
-  // 1) Agrupa e acumula dados por vendedor
   const groupedVendors = data.reduce((acc, sale) => {
     const vendedor = sale['Vendedor'];
 
@@ -11,12 +10,12 @@ const PerfilVendedor = ({ data }) => {
         totalVendas: 0,
         pedidosUnicos: new Set(),
         maxDate: null,
-        clients: {},
+        products: {},
       };
     }
 
     // Soma do campo 'Total' (convertendo vírgula em ponto)
-    const valorVenda = Number(sale['Total'].replace(',', '.'));
+    const valorVenda = sale['Total'] ? Number(sale['Total'].replace(',', '.')) : 0;
     acc[vendedor].totalVendas += valorVenda;
 
     // Adiciona o pedido para contar apenas pedidos distintos
@@ -30,25 +29,20 @@ const PerfilVendedor = ({ data }) => {
       acc[vendedor].maxDate = saleDate;
     }
 
-    // Conta quantos pedidos cada cliente fez
-    const cliente = sale['Cliente'];
-    if (!acc[vendedor].clients[cliente]) {
-      acc[vendedor].clients[cliente] = 0;
+    // Conta quantos pedidos cada produto teve
+    const produto = sale['Produto'];
+    if (!acc[vendedor].products[produto]) {
+      acc[vendedor].products[produto] = 0;
     }
-    acc[vendedor].clients[cliente] += 1;
+    acc[vendedor].products[produto] += 1;
 
     return acc;
   }, {});
 
-  // 2) Processa cada vendedor para calcular valores finais
   Object.keys(groupedVendors).forEach((vendedor) => {
     const vendorData = groupedVendors[vendedor];
 
-    // a) Top Cliente (por número de pedidos)
-    const sortedClients = Object.entries(vendorData.clients).sort((a, b) => b[1] - a[1]);
-    vendorData.topClient = sortedClients.length ? sortedClients[0][0] : 'N/A';
-
-    // b) Formata a última data de venda para DD/MM/YYYY
+    // Formata a última data de venda para DD/MM/YYYY
     if (vendorData.maxDate) {
       const d = String(vendorData.maxDate.getDate()).padStart(2, '0');
       const m = String(vendorData.maxDate.getMonth() + 1).padStart(2, '0');
@@ -58,14 +52,21 @@ const PerfilVendedor = ({ data }) => {
       vendorData.lastSaleDate = 'N/A';
     }
 
-    // c) Calcula Ticket Médio = totalVendas / número de pedidos distintos
+    // Calcula Ticket Médio = totalVendas / número de pedidos distintos
     const totalPedidos = vendorData.pedidosUnicos.size;
-    vendorData.ticketMedio = totalPedidos > 0
-      ? vendorData.totalVendas / totalPedidos
-      : 0;
+    vendorData.ticketMedio = totalPedidos > 0 ? vendorData.totalVendas / totalPedidos : 0;
+
+    // Identifica o produto mais vendido e o menos vendido
+    const sortedProducts = Object.entries(vendorData.products).sort((a, b) => b[1] - a[1]);
+    vendorData.mostSoldProduct = sortedProducts.length ? sortedProducts[0][0] : 'N/A';
+    vendorData.leastSoldProduct = sortedProducts.length ? sortedProducts[sortedProducts.length - 1][0] : 'N/A';
   });
 
-  // 3) Renderiza um Card para cada vendedor
+  // Função para formatar valores monetários para o formato brasileiro
+  const formatCurrency = (value) => {
+    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  };
+
   return (
     <Container fluid className="mt-4">
       {Object.keys(groupedVendors).map((vendedor) => {
@@ -74,7 +75,8 @@ const PerfilVendedor = ({ data }) => {
           pedidosUnicos,
           ticketMedio,
           lastSaleDate,
-          topClient,
+          mostSoldProduct,
+          leastSoldProduct,
         } = groupedVendors[vendedor];
 
         return (
@@ -83,7 +85,6 @@ const PerfilVendedor = ({ data }) => {
             style={{ width: '100%', borderRadius: '15px' }}
             key={vendedor}
           >
-            {/* Cabeçalho do Card */}
             <Card.Header
               className="bg-primary text-white fs-4 fw-bold"
               style={{ borderRadius: '10px 10px 0 0' }}
@@ -93,47 +94,36 @@ const PerfilVendedor = ({ data }) => {
               Região: Norte
             </Card.Header>
 
-            {/* Corpo do Card */}
             <Card.Body>
               <Row className="text-center">
-                {/* Total de Vendas */}
                 <Col>
-                  <h3 className="fw-bold text-success">
-                    R$ {totalVendas.toFixed(2)}
-                  </h3>
+                  <h3 className="fw-bold text-success">{formatCurrency(totalVendas)}</h3>
                   <p className="text-muted">Total de Vendas</p>
                 </Col>
 
-                {/* Total de Pedidos Distintos */}
                 <Col>
-                  <h3 className="fw-bold text-info">
-                    {pedidosUnicos.size}
-                  </h3>
+                  <h3 className="fw-bold text-info">{pedidosUnicos.size}</h3>
                   <p className="text-muted">Total de Pedidos</p>
                 </Col>
 
-                {/* Ticket Médio */}
                 <Col>
-                  <h3 className="fw-bold text-warning">
-                    R$ {ticketMedio.toFixed(2)}
-                  </h3>
+                  <h3 className="fw-bold text-warning">{formatCurrency(ticketMedio)}</h3>
                   <p className="text-muted">Ticket Médio</p>
                 </Col>
 
-                {/* Última Data de Venda */}
                 <Col>
-                  <h3 className="fw-bold text-secondary">
-                    {lastSaleDate}
-                  </h3>
+                  <h3 className="fw-bold text-secondary">{lastSaleDate}</h3>
                   <p className="text-muted">Última Venda</p>
                 </Col>
 
-                {/* Cliente Mais Frequente */}
                 <Col>
-                  <h3 className="fw-bold text-danger">
-                    {topClient}
-                  </h3>
-                  <p className="text-muted">Top Cliente</p>
+                  <h3 className="fw-bold text-primary">{mostSoldProduct}</h3>
+                  <p className="text-muted">Produto Mais Vendido</p>
+                </Col>
+
+                <Col>
+                  <h3 className="fw-bold text-danger">{leastSoldProduct}</h3>
+                  <p className="text-muted">Produto Menos Vendido</p>
                 </Col>
               </Row>
             </Card.Body>

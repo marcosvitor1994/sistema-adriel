@@ -36,3 +36,42 @@
     transform: rotate(360deg);
   }
 }
+
+@media (max-width: 767px) {
+  .order-modal .modal-dialog {
+    margin: 0.5rem;
+    max-width: none;
+  }
+  
+  .product-card {
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+  }
+  
+  .order-modal .modal-body {
+    padding: 1rem;
+  }
+  
+  .order-modal .form-control,
+  .order-modal .form-select {
+    font-size: 16px; /* Evita zoom automático em iOS */
+  }
+  
+  /* Ajuste para os botões no rodapé do modal */
+  .order-modal .modal-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .order-modal .modal-footer button {
+    margin: 0.25rem 0;
+  }
+}
+
+/* Estilo para o botão de remoção em dispositivos móveis */
+@media (max-width: 767px) {
+  .product-card .btn-danger {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+  }
+}
