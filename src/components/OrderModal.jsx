@@ -7,15 +7,15 @@ const OrderModal = ({ client, isOpen, onClose }) => {
   const [products, setProducts] = useState([]);
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [orderTotal, setOrderTotal] = useState(0);
+  const [orderWeight, setOrderWeight] = useState(0); // Peso total do pedido (em kg)
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
 
   // Estados para forma de pagamento
   const [paymentMethod, setPaymentMethod] = useState('avista'); // 'avista' ou 'parcelado'
-  // Armazena a opção selecionada para parcelamento (string que representa a chave do objeto abaixo)
   const [selectedSchedule, setSelectedSchedule] = useState('15/30/45/60/75');
   const [installmentDates, setInstallmentDates] = useState([]);
 
-  // Opções de parcelamento: cada array representa os dias de vencimento de cada parcela
+  // Faixas para parcelamento
   const installmentOptions = {
     "15/30/45/60/75": [15, 30, 45, 60, 75],
     "20/40/60/80": [20, 40, 60, 80],
@@ -23,19 +23,14 @@ const OrderModal = ({ client, isOpen, onClose }) => {
     "10/20/30/40/50/60/70/80/90/100": [10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
   };
 
-  // Listener para atualizar windowWidth quando a janela é redimensionada
+  // Atualiza windowWidth
   useEffect(() => {
-    const handleResize = () => {
-      setWindowWidth(window.innerWidth);
-    };
-    
+    const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
-    return () => {
-      window.removeEventListener('resize', handleResize);
-    };
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Atualiza as datas das parcelas quando o método de pagamento ou a opção de parcelamento mudar
+  // Atualiza datas de parcelas
   useEffect(() => {
     if (paymentMethod === 'parcelado') {
       const now = new Date();
@@ -50,68 +45,71 @@ const OrderModal = ({ client, isOpen, onClose }) => {
     }
   }, [paymentMethod, selectedSchedule]);
 
-  // Função para fazer o parse dos produtos vindos da API
-  const parseProducts = (data) => {
+  // ----- PARSING DOS PRODUTOS -----
+
+  // Parse dos produtos de nutrimentos
+  const parseNutriments = (data) => {
     const rows = data.values;
-    let productsArr = [];
-    let i = 0;
-    while (i < rows.length) {
+    const parsed = [];
+    // Pula cabeçalho
+    for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      // Se a linha tiver somente um item (título da seção) => pular
-      if (row.length === 1) {
-        i++;
-        continue;
-      }
-      // Detecta a linha de cabeçalho
-      if (row[0] === "CÓDIGO" || row[0] === "PRODUTO") {
-        const header = row;
-        let sectionType = null;
-        // Identifica a seção pelo número de colunas
-        if (header.length === 7) { 
-          sectionType = "first";
-        } else if (header.length === 9) {
-          sectionType = "second";
-        }
-        i++; // pula a linha de cabeçalho
-        // Enquanto não encontrar outra linha de título ou chegar ao fim
-        while (i < rows.length && rows[i].length !== 1 && rows[i][0] !== "Rações Alipan") {
-          const r = rows[i];
-          if (sectionType === "first") {
-            if (r.length >= 6 && r[0] !== "") {
-              productsArr.push({
-                id: r[0],
-                name: r[1],
-                // Preço da coluna "ATÉ 15 TON" (índice 5)
-                price: parseFloat(r[5].replace(',', '.')),
-              });
-            }
-          } else if (sectionType === "second") {
-            if (r.length >= 8 && r[1] !== "") {
-              productsArr.push({
-                id: r[0] || null,
-                name: r[1],
-                // Preço da coluna "ATÉ 15 TON" (índice 7)
-                price: parseFloat(r[7].replace(',', '.')),
-              });
-            }
-          }
-          i++;
-        }
-      } else {
-        i++;
-      }
+      if (row.length < 6) continue;
+      parsed.push({
+        id: `nut-${i}`, // id único
+        name: row[0],
+        type: row[1],
+        kg: parseFloat(row[2].replace(',', '.')) || 0, // peso por unidade (kg)
+        category: 'nutrimentos',
+        tiers: [
+          { threshold: 8, price: parseFloat(row[3].replace(',', '.')) || 0 },
+          { threshold: 15, price: parseFloat(row[4].replace(',', '.')) || 0 },
+          { threshold: Infinity, price: parseFloat(row[5].replace(',', '.')) || 0 },
+        ],
+      });
     }
-    return productsArr;
+    return parsed;
   };
 
+  // Parse dos produtos de rações
+  const parseRacoes = (data) => {
+    const rows = data.values;
+    const parsed = [];
+    // Pula cabeçalho
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.length < 9) continue;
+      parsed.push({
+        id: `rac-${i}`, // id único
+        name: row[0],
+        type: row[1],
+        kg: parseFloat(row[2].replace(',', '.')) || 0, // peso por unidade (kg)
+        category: 'racoes',
+        tiers: [
+          { threshold: 2, price: parseFloat(row[4].replace(',', '.')) || 0 },
+          { threshold: 6, price: parseFloat(row[5].replace(',', '.')) || 0 },
+          { threshold: 10, price: parseFloat(row[6].replace(',', '.')) || 0 },
+          { threshold: 15, price: parseFloat(row[7].replace(',', '.')) || 0 },
+          { threshold: Infinity, price: parseFloat(row[8].replace(',', '.')) || 0 },
+        ],
+      });
+    }
+    return parsed;
+  };
+
+  // Busca os produtos de ambas as rotas e mescla-os
   useEffect(() => {
-    // Busca os produtos na API e faz o parse dos dados
     const fetchProducts = async () => {
       try {
-        const response = await fetch('https://api-google-sheets-7zph.vercel.app/produtos_nutrimentos_adriel');
-        const data = await response.json();
-        const parsedProducts = parseProducts(data);
-        setProducts(parsedProducts);
+        const [nutResp, racResp] = await Promise.all([
+          fetch('https://api-google-sheets-7zph.vercel.app/produtos_nutrimentos_adriel'),
+          fetch('https://api-google-sheets-7zph.vercel.app/produtos_racoes_adriel')
+        ]);
+        const nutData = await nutResp.json();
+        const racData = await racResp.json();
+        const nutriments = parseNutriments(nutData);
+        const racoes = parseRacoes(racData);
+        setProducts([...nutriments, ...racoes]);
       } catch (error) {
         console.error('Error fetching products:', error);
       }
@@ -122,6 +120,73 @@ const OrderModal = ({ client, isOpen, onClose }) => {
     }
   }, [isOpen]);
 
+  // ----- CÁLCULO DO PREÇO E PESO -----
+
+  // Dado um produto e o peso total do pedido (em toneladas), retorna o preço unitário do tier
+  const computePrice = (product, orderWeightTon) => {
+    if (!product || !product.tiers) return 0;
+    for (let tier of product.tiers) {
+      if (orderWeightTon <= tier.threshold) {
+        return tier.price;
+      }
+    }
+    return 0;
+  };
+
+  // Recalcula o pedido: total financeiro, peso total e, se o preço não for manual, recalcula o valor unitário.
+  const recalcOrder = (updatedProducts) => {
+    let totalKg = 0;
+    // Calcula o peso total (em kg)
+    updatedProducts.forEach(item => {
+      const prod = products.find(p => p.id === item.product);
+      if (prod && item.quantity) {
+        totalKg += prod.kg * item.quantity;
+      }
+    });
+    const orderWeightTon = totalKg / 1000;
+    // Atualiza cada item: unitPrice (se não editado manualmente), total e peso da linha.
+    const recalculated = updatedProducts.map(item => {
+      const prod = products.find(p => p.id === item.product);
+      if (prod && item.quantity) {
+        const lineWeight = prod.kg * item.quantity;
+        const newUnitPrice = item.manualPrice ? item.unitPrice : computePrice(prod, orderWeightTon);
+        return {
+          ...item,
+          unitPrice: newUnitPrice,
+          total: item.quantity * newUnitPrice,
+          weight: lineWeight, // peso da linha (kg)
+        };
+      }
+      return item;
+    });
+    const newOrderTotal = recalculated.reduce((sum, item) => sum + item.total, 0);
+    setOrderTotal(newOrderTotal);
+    setOrderWeight(totalKg);
+    setSelectedProducts(recalculated);
+  };
+
+  // Atualiza um campo de uma linha do pedido
+  const updateProduct = (index, field, value) => {
+    const updated = [...selectedProducts];
+    if (field === 'unitPrice') {
+      updated[index][field] = value;
+      updated[index]['manualPrice'] = true;
+    } else {
+      updated[index][field] = value;
+      if (field === 'product' || field === 'quantity') {
+        updated[index]['manualPrice'] = false;
+      }
+    }
+    if (field === 'product') {
+      updated[index].quantity = 0;
+      updated[index].unitPrice = 0;
+      updated[index].total = 0;
+      updated[index].weight = 0;
+    }
+    recalcOrder(updated);
+  };
+
+  // Adiciona uma nova linha no pedido
   const addProductToOrder = () => {
     setSelectedProducts([
       ...selectedProducts,
@@ -131,47 +196,24 @@ const OrderModal = ({ client, isOpen, onClose }) => {
         quantity: 0,
         unitPrice: 0,
         total: 0,
+        weight: 0,
+        manualPrice: false,
       },
     ]);
   };
 
-  const updateProduct = (index, field, value) => {
-    const updated = [...selectedProducts];
-    updated[index][field] = value;
-
-    if (field === 'product') {
-      const selected = products.find(p => p.id === value);
-      updated[index].unitPrice = selected?.price || 0;
-    }
-
-    if (field === 'quantity' || field === 'unitPrice') {
-      updated[index].total = updated[index].quantity * updated[index].unitPrice;
-    }
-
-    setSelectedProducts(updated);
-    calculateOrderTotal(updated);
-  };
-
-  const calculateOrderTotal = (items) => {
-    const total = items.reduce((sum, item) => sum + item.total, 0);
-    setOrderTotal(total);
-  };
-
   const removeProduct = (index) => {
     const updated = selectedProducts.filter((_, idx) => idx !== index);
-    setSelectedProducts(updated);
-    calculateOrderTotal(updated);
+    recalcOrder(updated);
   };
 
-  // Função que gera o PDF do pedido, incluindo os dados de pagamento
-  const generatePDF = (orderData) => {
+  // ----- GERAÇÃO E COMPARTILHAMENTO DO PDF -----
+  const generateAndSharePDF = (orderData) => {
     const doc = new jsPDF();
   
-    // Título do documento
     doc.setFontSize(18);
     doc.text('Pedido', 14, 22);
   
-    // Informações do Cliente
     doc.setFontSize(12);
     doc.text(`Cliente: ${client.Cliente}`, 14, 32);
     doc.text(`CNPJ: ${client.CNPJ}`, 14, 40);
@@ -179,7 +221,6 @@ const OrderModal = ({ client, isOpen, onClose }) => {
     doc.text(`Telefone: ${client.Telefone}`, 14, 56);
     doc.text(`Data: ${new Date().toLocaleDateString()}`, 14, 64);
   
-    // Informações de Pagamento
     let paymentY = 72;
     doc.text(`Forma de Pagamento: ${paymentMethod === 'avista' ? 'À Vista' : 'Parcelado'}`, 14, paymentY);
     if (paymentMethod === 'parcelado') {
@@ -192,8 +233,7 @@ const OrderModal = ({ client, isOpen, onClose }) => {
       paymentY += 8;
     }
   
-    // Tabela de Produtos
-    const tableColumn = ["Produto", "Quantidade", "Valor Unit.", "Total"];
+    const tableColumn = ["Produto", "Qtd", "Peso (kg)", "Valor Unit.", "Total"];
     const tableRows = [];
   
     orderData.products.forEach(item => {
@@ -202,6 +242,7 @@ const OrderModal = ({ client, isOpen, onClose }) => {
       const rowData = [
         prodName,
         item.quantity.toString(),
+        item.weight ? item.weight.toFixed(2) : '0',
         `R$ ${item.unitPrice.toFixed(2)}`,
         `R$ ${item.total.toFixed(2)}`
       ];
@@ -216,29 +257,34 @@ const OrderModal = ({ client, isOpen, onClose }) => {
   
     const finalY = doc.lastAutoTable.finalY || paymentY + 6;
     doc.text(`Total do Pedido: R$ ${orderData.total.toFixed(2)}`, 14, finalY + 10);
+    doc.text(`Peso Total: ${orderData.weight.toFixed(2)} kg`, 14, finalY + 18);
   
-    // Criar um Blob URL para compartilhar sem baixar
+    // Gera o Blob do PDF e converte para File para a Web Share API
     const pdfBlob = doc.output('blob');
-    const pdfURL = URL.createObjectURL(pdfBlob);
-  
-    // Criar link de compartilhamento do WhatsApp
-    const whatsappMessage = `Olá, segue o pedido de ${client.Cliente}`;
-    const whatsappURL = `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappMessage)}&phone=`; // Adicione um número de telefone se necessário
-  
-    // Abrir o WhatsApp Web com a mensagem e o PDF
-    window.open(whatsappURL, '_blank');
-  
-    // Criar botão para compartilhar via WhatsApp
-    const shareButton = document.createElement('a');
-    shareButton.href = pdfURL;
-    shareButton.download = 'pedido.pdf';
-    shareButton.target = '_blank';
-    shareButton.click();
+    const pdfFile = new File([pdfBlob], 'pedido.pdf', { type: 'application/pdf' });
+    
+    // Se o navegador suportar compartilhamento de arquivos
+    if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+      navigator.share({
+        title: 'Pedido',
+        text: `Segue o pedido de ${client.Cliente}`,
+        files: [pdfFile],
+      })
+      .then(() => console.log('PDF compartilhado com sucesso!'))
+      .catch((error) => console.error('Erro ao compartilhar o PDF:', error));
+    } else {
+      // Fallback: Download do PDF
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(pdfBlob);
+      link.download = 'pedido.pdf';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
-  
-  // Nova função para renderizar os itens de forma responsiva
+
+  // ----- RENDERIZAÇÃO DOS ITENS (RESPONSIVA) -----
   const renderProductItems = () => {
-    // Em telas pequenas, mostramos cards em vez de linhas de tabela
     if (windowWidth < 768) {
       return (
         <div>
@@ -252,39 +298,41 @@ const OrderModal = ({ client, isOpen, onClose }) => {
                     onChange={(e) => updateProduct(index, 'product', e.target.value)}
                   >
                     <option value="">Selecione um produto</option>
-                    {products.map((product, idx) => (
-                      <option key={idx} value={product.id}>
-                        {product.name} {product.price && `(R$ ${product.price.toFixed(2)})`}
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name}
                       </option>
                     ))}
                   </Form.Select>
                 </Form.Group>
-                
-                <div className="row">
-                  <div className="col-6">
-                    <Form.Group className="mb-2">
-                      <Form.Label>Quantidade</Form.Label>
-                      <Form.Control
-                        type="number"
-                        value={item.quantity}
-                        onChange={(e) => updateProduct(index, 'quantity', parseFloat(e.target.value) || 0)}
-                      />
-                    </Form.Group>
-                  </div>
-                  <div className="col-6">
-                    <Form.Group className="mb-2">
-                      <Form.Label>Valor Unit.</Form.Label>
-                      <Form.Control
-                        type="number"
-                        value={item.unitPrice}
-                        onChange={(e) => updateProduct(index, 'unitPrice', parseFloat(e.target.value) || 0)}
-                      />
-                    </Form.Group>
-                  </div>
+                <Form.Group className="mb-2">
+                  <Form.Label>Quantidade</Form.Label>
+                  <Form.Control
+                    type="number"
+                    value={item.quantity}
+                    onChange={(e) => updateProduct(index, 'quantity', parseFloat(e.target.value) || 0)}
+                  />
+                </Form.Group>
+                <div className="mb-2">
+                  <strong>Peso da Linha:</strong> {item.weight ? item.weight.toFixed(2) : '0'} kg
                 </div>
-                
+                <Form.Group className="mb-2">
+                  <Form.Label>Valor Unitário</Form.Label>
+                  <Form.Control
+                    type="number"
+                    value={item.unitPrice}
+                    onChange={(e) => updateProduct(index, 'unitPrice', parseFloat(e.target.value) || 0)}
+                  />
+                  <small className="text-muted">
+                    (Calculado automaticamente, edite se necessário)
+                  </small>
+                </Form.Group>
                 <div className="d-flex justify-content-between align-items-center mt-2">
-                  <div className="fw-bold">Total: R$ {item.total.toFixed(2)}</div>
+                  <div>
+                    <strong>Total:</strong> R$ {item.total.toFixed(2)}
+                    <br />
+                    <strong>Peso:</strong> {item.weight ? item.weight.toFixed(2) : '0'} kg
+                  </div>
                   <Button variant="danger" size="sm" onClick={() => removeProduct(index)}>
                     Remover
                   </Button>
@@ -295,13 +343,13 @@ const OrderModal = ({ client, isOpen, onClose }) => {
         </div>
       );
     } else {
-      // Em telas maiores, mantemos a tabela original
       return (
         <Table responsive striped bordered hover className="mb-4">
           <thead>
             <tr>
               <th>Produto</th>
-              <th>Quantidade</th>
+              <th>Qtd</th>
+              <th>Peso (kg)</th>
               <th>Valor Unit.</th>
               <th>Total</th>
               <th>Ações</th>
@@ -316,9 +364,9 @@ const OrderModal = ({ client, isOpen, onClose }) => {
                     onChange={(e) => updateProduct(index, 'product', e.target.value)}
                   >
                     <option value="">Selecione um produto</option>
-                    {products.map((product, idx) => (
-                      <option key={idx} value={product.id}>
-                        {product.name} {product.price && `(R$ ${product.price.toFixed(2)})`}
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name}
                       </option>
                     ))}
                   </Form.Select>
@@ -330,6 +378,7 @@ const OrderModal = ({ client, isOpen, onClose }) => {
                     onChange={(e) => updateProduct(index, 'quantity', parseFloat(e.target.value) || 0)}
                   />
                 </td>
+                <td>{item.weight ? item.weight.toFixed(2) : '0'}</td>
                 <td>
                   <Form.Control
                     type="number"
@@ -358,19 +407,15 @@ const OrderModal = ({ client, isOpen, onClose }) => {
       clientId: client.id,
       products: selectedProducts,
       total: orderTotal,
+      weight: orderWeight, // peso total em kg
       date: new Date().toISOString(),
       paymentMethod,
       installmentSchedule: paymentMethod === 'parcelado' ? selectedSchedule : null,
       installmentDates: paymentMethod === 'parcelado' ? installmentDates : [],
     };
 
-    // Aqui você pode realizar o POST para salvar o pedido no backend, se necessário.
-    // ...
-
-    // Gera o PDF com as informações do pedido (incluindo pagamento)
-    generatePDF(orderData);
-    
-    // Fecha o modal
+    // Gera e compartilha (ou baixa) o PDF com os dados do pedido
+    generateAndSharePDF(orderData);
     onClose();
   };
 
@@ -382,7 +427,7 @@ const OrderModal = ({ client, isOpen, onClose }) => {
       
       <Modal.Body>
         <Form onSubmit={handleSubmit}>
-          {/* Informações do Cliente - ajustada para melhor responsividade */}
+          {/* Informações do Cliente */}
           <div className="mb-4">
             <h5 className="mb-3">Informações do Cliente</h5>
             <Form.Group className="mb-3">
@@ -409,17 +454,17 @@ const OrderModal = ({ client, isOpen, onClose }) => {
             </div>
           </div>
 
-          {/* Produtos - usando a função de renderização responsiva */}
+          {/* Produtos */}
           <h5 className="mb-3">Produtos</h5>
           {renderProductItems()}
-
           <Button variant="primary" onClick={addProductToOrder} className="mb-4 mt-2">
             Adicionar Produto
           </Button>
 
-          {/* Total do Pedido */}
+          {/* Totais do Pedido */}
           <div className="d-flex justify-content-between align-items-center mt-4">
             <div className="h4 mb-0">Total: R$ {orderTotal.toFixed(2)}</div>
+            <div className="h5 mb-0">Peso Total: {orderWeight.toFixed(2)} kg</div>
           </div>
 
           {/* Opções de Pagamento */}
