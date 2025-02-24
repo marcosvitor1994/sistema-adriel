@@ -26,6 +26,7 @@ const Home = () => {
         ]);
 
         setClients(parseData(clientesRes.data.values));
+        console.log(historicoRes.data.values)
         setHistory(parseData(historicoRes.data.values));
       } catch (error) {
         console.error("Erro ao buscar os dados:", error);
@@ -40,9 +41,57 @@ const Home = () => {
     return rows.map((row) => Object.fromEntries(header.map((key, index) => [key, row[index]])));
   };
 
+  const historyByClient = history.reduce((acc, order) => {
+    const clientInscricao = order['Inscricao'];
+    if (!acc[clientInscricao]) acc[clientInscricao] = [];
+    acc[clientInscricao].push(order);
+    return acc;
+  }, {});
+
+  const getLastPurchaseDate = (orders) => {
+    const dates = orders.map(order => {
+      const [day, month, year] = order['Data'].split('/');
+      return new Date(year, month - 1, day);
+    });
+    const maxDate = new Date(Math.max(...dates));
+    return { date: maxDate, formatted: maxDate.toLocaleDateString('pt-BR') };
+  };
+
+  const filteredClients = clients.filter(client =>
+    [client['Cliente'], client['Código'], client['Fantasia']]
+      .some(field => field?.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
+  const sortedClientsList = filteredClients
+    .map(client => {
+      const clientHistory = historyByClient[client['Inscricao']];
+      const lastPurchase = clientHistory ? getLastPurchaseDate(clientHistory) : { date: new Date(0), formatted: null };
+      return { ...client, clientHistory, lastPurchase };
+    })
+    .sort((a, b) => b.lastPurchase.date - a.lastPurchase.date)
+    .slice(0, visibleClients);
+
+  const handleLoadMore = () => setVisibleClients(prev => prev + 10);
+
   const handleOpenUploadModal = () => {
     setIsUploadModalOpen(true);
     setUploadMessage(null); // Reseta a mensagem ao abrir o modal
+  };
+
+  const aggregateProducts = (orders) => {
+    return Object.values(orders.reduce((acc, order) => {
+      const produto = order['Produto'];
+      const quantidade = parseFloat(order['Quantidade']?.replace(',', '.') || 0);
+      if (!acc[produto]) acc[produto] = { produto, totalQuantidade: 0, count: 0 };
+      acc[produto].totalQuantidade += quantidade;
+      acc[produto].count += 1;
+      return acc;
+    }, {})).sort((a, b) => b.totalQuantidade - a.totalQuantidade);
+  };
+
+  const handleCloseModal = () => {
+    setIsOrderModalOpen(false);
+    setSelectedClient(null);
   };
 
   const handleCloseUploadModal = () => {
@@ -89,10 +138,11 @@ const Home = () => {
 
       <h2 className="mb-4">Clientes</h2>
 
-      {/* Botão para abrir o modal de upload */}
+      {/* Botão para abrir o modal de upload 
       <Button variant="primary" className="mb-3" onClick={handleOpenUploadModal}>
         Enviar PDF
       </Button>
+      */}
 
       <Form.Group className="mb-3">
         <Form.Control
@@ -126,33 +176,65 @@ const Home = () => {
 
       {/* Lista de clientes */}
       <Accordion>
-        {clients.slice(0, visibleClients).map((client, idx) => (
-          <Accordion.Item eventKey={idx.toString()} key={client["Código"]}>
-            <Accordion.Header>
-              {client["Cliente"]} - {client["Fantasia"]}
-            </Accordion.Header>
-            <Accordion.Body>
-              <Row className="mb-3">
-                <Col md={4}><strong>Código:</strong> {client["Código"]}</Col>
-                <Col md={4}><strong>CNPJ:</strong> {client["CNPJ"]}</Col>
-                <Col md={4}><strong>Telefone:</strong> {client["Telefone"]}</Col>
-              </Row>
-              <Button onClick={() => { setSelectedClient(client); setIsOrderModalOpen(true); }}>
-                Novo Pedido
-              </Button>
-            </Accordion.Body>
-          </Accordion.Item>
-        ))}
-      </Accordion>
+        {sortedClientsList.map((client, idx) => {
+          const { clientHistory, lastPurchase } = client;
+          const aggregatedProducts = clientHistory ? aggregateProducts(clientHistory) : [];
 
-      {visibleClients < clients.length && (
+          return (
+            <Accordion.Item eventKey={idx.toString()} key={client['Código']}>
+              <Accordion.Header>
+                {client['Cliente']} - {client['Fantasia']}
+              </Accordion.Header>
+              <Accordion.Body>
+                <Row className="mb-3">
+                  <Col md={4}><strong>Código:</strong> {client['Código']}</Col>
+                  <Col md={4}><strong>CNPJ:</strong> {client['CNPJ']}</Col>
+                  <Col md={4}><strong>Telefone:</strong> {client['Telefone']}</Col>
+                </Row>
+                {clientHistory ? (
+                  <>
+                    <Row className="mb-3">
+                      <Col md={4}><strong>Última Compra:</strong> {lastPurchase.formatted}</Col>
+                      <Col md={4}><strong>Total de Pedidos:</strong> {clientHistory.length}</Col>
+                    </Row>
+                    <h5>Produtos Mais Solicitados</h5>
+                    <Table striped bordered hover>
+                      <thead>
+                        <tr>
+                          <th>Produto</th>
+                          <th>Total Quantidade</th>
+                          <th>Nº de Pedidos</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {aggregatedProducts.map(prod => (
+                          <tr key={prod.produto}>
+                            <td>{prod.produto}</td>
+                            <td>{prod.totalQuantidade}</td>
+                            <td>{prod.count}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  </>
+                ) : (
+                  <p>Nenhum histórico disponível.</p>
+                )}
+                <Button onClick={() => { setSelectedClient(client); setIsOrderModalOpen(true); }}>
+                  Novo Pedido
+                </Button>
+              </Accordion.Body>
+            </Accordion.Item>
+          );
+        })}
+      </Accordion>
+      {visibleClients < filteredClients.length && (
         <div className="mt-3 text-center">
-          <Button onClick={() => setVisibleClients((prev) => prev + 10)}>Carregar mais</Button>
+          <Button onClick={handleLoadMore}>Carregar mais</Button>
         </div>
       )}
-
       {selectedClient && (
-        <OrderModal client={selectedClient} isOpen={isOrderModalOpen} onClose={() => setIsOrderModalOpen(false)} />
+        <OrderModal client={selectedClient} isOpen={isOrderModalOpen} onClose={handleCloseModal} />
       )}
     </Container>
   );
