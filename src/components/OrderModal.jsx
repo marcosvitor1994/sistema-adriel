@@ -4,7 +4,6 @@ import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
 const OrderModal = ({ client, isOpen, onClose }) => {
-  console.log(client)
   const [products, setProducts] = useState([]);
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [orderTotal, setOrderTotal] = useState(0);

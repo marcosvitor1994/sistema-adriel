@@ -28,7 +28,6 @@ const Home = () => {
         ]);
 
         setClients(parseData(clientesRes.data.values));
-        console.log(historicoRes.data.values);
         setHistory(parseData(historicoRes.data.values));
       } catch (error) {
         console.error("Erro ao buscar os dados:", error);
