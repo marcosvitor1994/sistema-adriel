@@ -88,3 +88,18 @@
     font-size: 12px !important;
   }
 }
+
+.striped-options option:nth-child(even) {
+  background-color: #f8f9fa; /* Cinza muito claro (ou a cor que preferir) */
+  color: #212529; /* Cor do texto (preto ou cinza escuro) */
+}
+
+.striped-options option:nth-child(odd) {
+  background-color: #ffffff; /* Branco (ou outra cor para contraste) */
+  color: #212529; /* Cor do texto (preto ou cinza escuro) */
+}
+
+.striped-options option:hover {
+  background-color: #e9ecef; /* Cor ao passar o mouse, opcional */
+  color: #212529;
+}

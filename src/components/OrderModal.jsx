@@ -318,11 +318,12 @@ const OrderModal = ({ client, isOpen, onClose }) => {
                         e.stopPropagation(); // Evita que o evento de mudança afete o accordion
                         updateProduct(index, 'product', e.target.value);
                       }}
+                      className="striped-options"
                     >
                       <option value="">Selecione um produto</option>
-                      {products.map((product) => (
+                      {products.map((product, index) => (
                         <option key={product.id} value={product.id}>
-                          {product.name} - {product.kg}kg
+                          {product.name} - {product.type} - {product.kg}kg
                         </option>
                       ))}
                     </Form.Select>
@@ -383,17 +384,18 @@ const OrderModal = ({ client, isOpen, onClose }) => {
             {selectedProducts.map((item, index) => (
               <tr key={item.id}>
                 <td>
-                  <Form.Select
-                    value={item.product}
-                    onChange={(e) => updateProduct(index, 'product', e.target.value)}
-                  >
-                    <option value="">Selecione um produto</option>
-                    {products.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name} - {product.kg}kg
-                      </option>
-                    ))}
-                  </Form.Select>
+                <Form.Select
+                  value={item.product}
+                  onChange={(e) => updateProduct(index, 'product', e.target.value)}
+                  className="striped-options"
+                >
+                  <option value="">Selecione um produto</option>
+                  {products.map((product, index) => (
+                    <option key={product.id} value={product.id}>
+                      {product.name} - {product.type} - {product.kg}kg
+                    </option>
+                  ))}
+                </Form.Select>
                 </td>
                 <td>
                   <Form.Control
