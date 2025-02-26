@@ -400,7 +400,7 @@ const Home = () => {
                     {orderCount > 0 && (
                       <Badge bg="primary" className="me-2">{orderCount} pedido{orderCount !== 1 ? 's' : ''}</Badge>
                     )}
-                    {nextOrder && (
+                    {orderCount > 1 && nextOrder && nextOrder.avgDays && (
                       <Badge bg="info" className="text-dark">
                         Próximo pedido: {nextOrder.formatted}
                       </Badge>
