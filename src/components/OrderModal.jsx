@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Button, Form, Table, Card } from 'react-bootstrap';
+import { Modal, Button, Form, Table, Card, Accordion } from 'react-bootstrap';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
 const OrderModal = ({ client, isOpen, onClose }) => {
+  console.log(client)
   const [products, setProducts] = useState([]);
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [orderTotal, setOrderTotal] = useState(0);
@@ -14,6 +15,8 @@ const OrderModal = ({ client, isOpen, onClose }) => {
   const [paymentMethod, setPaymentMethod] = useState('avista'); // 'avista' ou 'parcelado'
   const [selectedSchedule, setSelectedSchedule] = useState('15/30/45/60/75');
   const [installmentDates, setInstallmentDates] = useState([]);
+
+  const [activeAccordion, setActiveAccordion] = useState(null);
 
   // Faixas para parcelamento
   const installmentOptions = {
@@ -186,9 +189,8 @@ const OrderModal = ({ client, isOpen, onClose }) => {
     recalcOrder(updated);
   };
 
-  // Adiciona uma nova linha no pedido
   const addProductToOrder = () => {
-    setSelectedProducts([
+    const newProducts = [
       ...selectedProducts,
       {
         id: Date.now(),
@@ -199,7 +201,10 @@ const OrderModal = ({ client, isOpen, onClose }) => {
         weight: 0,
         manualPrice: false,
       },
-    ]);
+    ];
+    setSelectedProducts(newProducts);
+    // Define o índice do novo produto como ativo
+    setActiveAccordion(String(newProducts.length - 1));
   };
 
   const removeProduct = (index) => {
@@ -287,60 +292,80 @@ const OrderModal = ({ client, isOpen, onClose }) => {
   const renderProductItems = () => {
     if (windowWidth < 768) {
       return (
-        <div>
+        <Accordion activeKey={activeAccordion} className="mb-3" onSelect={(key) => setActiveAccordion(key)}>
           {selectedProducts.map((item, index) => (
-            <Card key={item.id} className="mb-3 product-card">
-              <Card.Body>
-                <Form.Group className="mb-2">
-                  <Form.Label>Produto</Form.Label>
-                  <Form.Select
-                    value={item.product}
-                    onChange={(e) => updateProduct(index, 'product', e.target.value)}
-                  >
-                    <option value="">Selecione um produto</option>
-                    {products.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name}
-                      </option>
-                    ))}
-                  </Form.Select>
-                </Form.Group>
-                <Form.Group className="mb-2">
-                  <Form.Label>Quantidade</Form.Label>
-                  <Form.Control
-                    type="number"
-                    value={item.quantity}
-                    onChange={(e) => updateProduct(index, 'quantity', parseFloat(e.target.value) || 0)}
-                  />
-                </Form.Group>
-                <div className="mb-2">
-                  <strong>Peso da Linha:</strong> {item.weight ? item.weight.toFixed(2) : '0'} kg
-                </div>
-                <Form.Group className="mb-2">
-                  <Form.Label>Valor Unitário</Form.Label>
-                  <Form.Control
-                    type="number"
-                    value={item.unitPrice}
-                    onChange={(e) => updateProduct(index, 'unitPrice', parseFloat(e.target.value) || 0)}
-                  />
-                  <small className="text-muted">
-                    (Calculado automaticamente, edite se necessário)
-                  </small>
-                </Form.Group>
-                <div className="d-flex justify-content-between align-items-center mt-2">
+            <Accordion.Item key={item.id} eventKey={String(index)}>
+              <Accordion.Header>
+                <div className="d-flex justify-content-between w-100 align-items-center pe-3">
                   <div>
-                    <strong>Total:</strong> R$ {item.total.toFixed(2)}
-                    <br />
-                    <strong>Peso:</strong> {item.weight ? item.weight.toFixed(2) : '0'} kg
+                    {(() => {
+                      const prod = products.find(p => p.id === item.product);
+                      return prod 
+                        ? `${prod.name} - ${item.quantity} unid.` 
+                        : 'Produto não selecionado';
+                    })()}
                   </div>
-                  <Button variant="danger" size="sm" onClick={() => removeProduct(index)}>
-                    Remover
-                  </Button>
+                  <div className="text-end text-muted">
+                    R$ {item.total.toFixed(2)}
+                  </div>
                 </div>
-              </Card.Body>
-            </Card>
+              </Accordion.Header>
+                <Accordion.Body>
+                  <Form.Group className="mb-2">
+                    <Form.Label>Produto</Form.Label>
+                    <Form.Select
+                      value={item.product}
+                      onChange={(e) => {
+                        e.stopPropagation(); // Evita que o evento de mudança afete o accordion
+                        updateProduct(index, 'product', e.target.value);
+                      }}
+                    >
+                      <option value="">Selecione um produto</option>
+                      {products.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.name} - {product.kg}kg
+                        </option>
+                      ))}
+                    </Form.Select>
+                  </Form.Group>
+                  
+                  <Form.Group className="mb-2">
+                    <Form.Label>Quantidade</Form.Label>
+                    <Form.Control
+                      type="number"
+                      value={item.quantity}
+                      onChange={(e) => updateProduct(index, 'quantity', parseFloat(e.target.value) || 0)}
+                    />
+                  </Form.Group>
+                  
+                  <div className="mb-2">
+                    <strong>Peso da Linha:</strong> {item.weight ? item.weight.toFixed(2) : '0'} kg
+                  </div>
+                  
+                  <Form.Group className="mb-2">
+                    <Form.Label>Valor Unitário</Form.Label>
+                    <Form.Control
+                      type="number"
+                      value={item.unitPrice}
+                      onChange={(e) => updateProduct(index, 'unitPrice', parseFloat(e.target.value) || 0)}
+                    />
+                    <small className="text-muted">
+                      (Calculado automaticamente, edite se necessário)
+                    </small>
+                  </Form.Group>
+                  
+                  <div className="d-flex justify-content-between align-items-center mt-2">
+                    <div>
+                      <strong>Total:</strong> R$ {item.total.toFixed(2)}
+                    </div>
+                    <Button variant="danger" size="sm" onClick={() => removeProduct(index)}>
+                      Remover
+                    </Button>
+                  </div>
+                </Accordion.Body>
+            </Accordion.Item>
           ))}
-        </div>
+        </Accordion>
       );
     } else {
       return (
@@ -366,7 +391,7 @@ const OrderModal = ({ client, isOpen, onClose }) => {
                     <option value="">Selecione um produto</option>
                     {products.map((product) => (
                       <option key={product.id} value={product.id}>
-                        {product.name}
+                        {product.name} - {product.kg}kg
                       </option>
                     ))}
                   </Form.Select>
