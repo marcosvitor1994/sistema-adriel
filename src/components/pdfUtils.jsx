@@ -4,6 +4,13 @@ import 'jspdf-autotable';
 export const generatePDF = (orderData) => {
   const doc = new jsPDF();
 
+  // Formatando a data para usar no nome do arquivo
+  const today = new Date();
+  const formattedDate = today.toLocaleDateString('pt-BR').replace(/\//g, '-');
+  
+  // Criando um nome de arquivo baseado no cliente e na data
+  const fileName = `Pedido_${orderData.cliente.replace(/\s+/g, '_')}_${formattedDate}.pdf`;
+
   doc.setFontSize(18);
   doc.text('Pedido', 14, 22);
 
@@ -61,7 +68,7 @@ export const generatePDF = (orderData) => {
 
   // Gera o Blob do PDF e converte para File para a Web Share API
   const pdfBlob = doc.output('blob');
-  const pdfFile = new File([pdfBlob], 'pedido.pdf', { type: 'application/pdf' });
+  const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
   
   // Se o navegador suportar compartilhamento de arquivos
   if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
@@ -76,7 +83,7 @@ export const generatePDF = (orderData) => {
     // Fallback: Download do PDF
     const link = document.createElement('a');
     link.href = URL.createObjectURL(pdfBlob);
-    link.download = 'pedido.pdf';
+    link.download = fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
