@@ -279,6 +279,9 @@ const OrderModal = ({ client, isOpen, onClose, editMode = false, pedidoData = nu
       if (onUpdate) {
         onUpdate(updatedPedido);
       }
+      
+      // Gera e compartilha o PDF com os dados do pedido atualizado
+      generatePDF(orderData);
     } else {
       // Estamos criando um novo pedido
       try {
