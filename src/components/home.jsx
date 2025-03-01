@@ -9,41 +9,130 @@ import Pedidos from "./Pedidos";
 const Home = () => {
   const [clients, setClients] = useState([]);
   const [history, setHistory] = useState([]);
+  const [validatedOrders, setValidatedOrders] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [visibleClients, setVisibleClients] = useState(10);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [selectedClient, setSelectedClient] = useState(null);
   const [productsAccordionOpen, setProductsAccordionOpen] = useState({});
+  const [combinedHistoryData, setCombinedHistoryData] = useState([]); // Estado para armazenar o histórico combinado
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState(null);
+  const [dataLoaded, setDataLoaded] = useState(false); // Novo estado para controlar carregamento
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const [clientesRes, historicoRes] = await Promise.all([
           axios.get("https://api-google-sheets-7zph.vercel.app/clientes_adriel"),
-          axios.get("https://api-google-sheets-7zph.vercel.app/historico_clientes_adriel"),
+          axios.get("https://api-google-sheets-7zph.vercel.app/historico_clientes_adriel")
         ]);
-
+  
         setClients(parseData(clientesRes.data.values));
-        setHistory(parseData(historicoRes.data.values));
+        const historyData = parseData(historicoRes.data.values);
+        setHistory(historyData);
+  
+        // Normalizar os dados do histórico e armazenar
+        const normalizedData = normalizeHistoryData(historyData);
+        setCombinedHistoryData(normalizedData);
+  
+        setDataLoaded(true); // Marcar como carregado
       } catch (error) {
         console.error("Erro ao buscar os dados:", error);
+        setDataLoaded(true); // Marcar como carregado mesmo em caso de erro
       }
     };
-
+  
     fetchData();
   }, []);
+
+  const normalizeHistoryData = (data) => {
+    return data.map(entry => {
+      // Garantir que todos os campos necessários existam
+      return {
+        CEP: entry['CEP'] || '',
+        CNPJ: entry['CNPJ'] || '',
+        Cidade: entry['Cidade'] || '',
+        Cliente: entry['Cliente'] || '',
+        Codigo: entry['Codigo'] || entry['Código'] || '',
+        Data: entry['Data'] || '',
+        Endereco: entry['Endereco'] || '',
+        Entrega: entry['Entrega'] || '',
+        Fantasia: entry['Fantasia'] || '',
+        Inscricao: entry['Inscricao'] || '',
+        Pagamento: entry['Pagamento'] || '',
+        Pedido: entry['Pedido'] || '',
+        'Preco/Kg': entry['Preco/Kg'] || '',
+        Produto: entry['Produto'] || '',
+        Quantidade: entry['Quantidade'] || '',
+        Telefone: entry['Telefone'] || '',
+        Total: entry['Total'] || '0',
+        Unitario: entry['Unitario'] || '',
+        Vendedor: entry['Vendedor'] || 'Sistema'
+      };
+    });
+  };
+
+  const removeDuplicateEntries = (entries) => {
+    const uniqueMap = new Map();
+    
+    entries.forEach(entry => {
+      const key = `${entry['Pedido']}-${entry['Produto']}`;
+      
+      // Se já existe esta combinação de Pedido-Produto, vamos manter a entrada com mais informações
+      if (uniqueMap.has(key)) {
+        const existing = uniqueMap.get(key);
+        // Verifica qual entrada tem mais campos preenchidos (não vazios)
+        const existingFilledFields = Object.values(existing).filter(v => v && v !== '').length;
+        const newFilledFields = Object.values(entry).filter(v => v && v !== '').length;
+        
+        if (newFilledFields > existingFilledFields) {
+          uniqueMap.set(key, entry);
+        }
+      } else {
+        uniqueMap.set(key, entry);
+      }
+    });
+    
+    return Array.from(uniqueMap.values());
+  };
 
   const parseData = (data) => {
     const [header, ...rows] = data;
     return rows.map((row) => Object.fromEntries(header.map((key, index) => [key, row[index]])));
   };
 
-  const historyByClient = history.reduce((acc, order) => {
+  // Converter pedidos do novo formato para o formato usado pelo histórico
+  const convertValidatedOrdersToHistoryFormat = (orders) => {
+    const convertedOrders = [];
+    
+    orders.forEach(order => {
+      // Para cada produto no pedido, criar uma entrada no formato do histórico
+      order.produtos.forEach(produto => {
+        // Formatando a data para o formato DD/MM/YYYY
+        const orderDate = new Date(order.data);
+        const formattedDate = `${orderDate.getDate().toString().padStart(2, '0')}/${(orderDate.getMonth() + 1).toString().padStart(2, '0')}/${orderDate.getFullYear()}`;
+        
+        convertedOrders.push({
+          'Inscricao': order.cnpj || '',
+          'Data': formattedDate,
+          'Pedido': order._id,
+          'Produto': produto.produto,
+          'Quantidade': produto.quantidade.toString(),
+          'Total': (produto.quantidade * produto.valorUnidade).toFixed(2).replace('.', ','),
+          // Adicione o campo Vendedor se disponível, ou use um valor padrão
+          'Vendedor': order.vendedor || 'Sistema'
+        });
+      });
+    });
+    
+    return convertedOrders;
+  };
+
+  const historyByClient = combinedHistoryData.reduce((acc, order) => {
     const clientInscricao = order['Inscricao'];
     if (!acc[clientInscricao]) acc[clientInscricao] = [];
     acc[clientInscricao].push(order);
@@ -243,9 +332,30 @@ const Home = () => {
       .some(field => field?.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
+  // Função para encontrar o CNPJ corretamente formatado para corresponder à inscrição nos históricos
+  const findMatchingCNPJ = (client) => {
+    // Primeiro tentamos usar a inscrição diretamente
+    if (client['Inscricao'] && historyByClient[client['Inscricao']]) {
+      return client['Inscricao'];
+    }
+    
+    // Também verificamos pedidos validados que possam corresponder a este cliente
+    const matchingOrder = validatedOrders.find(order => 
+      order.cliente === client['Cliente'] || 
+      (client['CNPJ'] && order.cnpj && order.cnpj.replace(/\D/g, '') === client['CNPJ'].replace(/\D/g, ''))
+    );
+    
+    if (matchingOrder) {
+      return matchingOrder.cnpj;
+    }
+    
+    return client['Inscricao'] || client['CNPJ'] || '';
+  };
+
   const sortedClientsList = filteredClients
     .map(client => {
-      const clientHistory = historyByClient[client['Inscricao']];
+      const inscricaoKey = findMatchingCNPJ(client);
+      const clientHistory = historyByClient[inscricaoKey];
       const lastPurchase = clientHistory ? getLastPurchaseDate(clientHistory) : { date: new Date(0), formatted: null };
       const orderCount = clientHistory ? countDistinctOrders(clientHistory) : 0;
       const nextOrder = clientHistory && orderCount > 0 ? getNextOrderDate(clientHistory) : null;
@@ -348,11 +458,35 @@ const Home = () => {
     return null;
   };
 
+  // Função para atualizar os dados do pedido quando um pedido for validado
+  const handleOrderStatusChange = async () => {
+    try {
+      const pedidosRes = await fetch("https://y-liard-eight.vercel.app/pedidos").then(res => res.json());
+      if (!pedidosRes.error) {
+        const validated = pedidosRes.pedidos.filter(pedido => pedido.status === "Validado");
+        setValidatedOrders(validated);
+        
+        // Atualizar o histórico combinado
+        const convertedOrders = convertValidatedOrdersToHistoryFormat(validated);
+        // Remover duplicatas ao atualizar
+        const allEntries = [...history, ...convertedOrders];
+        const uniqueEntries = removeDuplicateEntries(allEntries);
+        
+        setCombinedHistoryData(uniqueEntries);
+      }
+    } catch (error) {
+      console.error("Erro ao buscar pedidos validados:", error);
+    }
+  };
+
   return (
     <Container className="mt-4">
-      <PerfilVendedor data={history} />
+      {/* Renderizar o PerfilVendedor apenas uma vez, quando os dados estiverem carregados */}
+      {dataLoaded && combinedHistoryData.length > 0 && 
+        <PerfilVendedor key="perfil-vendedor-unico" data={combinedHistoryData} />
+      }
 
-      <Pedidos />
+      <Pedidos onOrderStatusChange={handleOrderStatusChange} />
 
       <h2 className="mb-4">Clientes</h2>
 

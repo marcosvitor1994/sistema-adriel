@@ -16,14 +16,22 @@ const formatCurrency = (value) =>
 
 // Converte string "MM/YYYY" em Date para ordenação
 const parseMonthYear = (mesAno) => {
-  const [m, y] = mesAno.split('/');
+  if (!mesAno) return new Date(0);
+  const parts = mesAno.split('/');
+  if (parts.length !== 2) return new Date(0);
+  const [m, y] = parts;
   return new Date(+y, +m - 1, 1); // dia fixo = 1
 };
 
 const PerfilVendedor = ({ data }) => {
+
+  const validData = data.filter(sale => 
+    sale['Data'] && sale['Pedido'] && sale['Vendedor'] && 
+    typeof sale['Total'] === 'string' && sale['Total'].trim() !== ''
+  );
   // Agrupa dados por vendedor
-  const groupedVendors = data.reduce((acc, sale) => {
-    const vendedor = sale['Vendedor'];
+  const groupedVendors = validData.reduce((acc, sale) => {
+    const vendedor = sale['Vendedor'] || 'Desconhecido';
     if (!acc[vendedor]) {
       acc[vendedor] = {
         totalVendas: 0,
@@ -34,32 +42,54 @@ const PerfilVendedor = ({ data }) => {
       };
     }
 
-    const valorVenda = sale['Total']
-      ? Number(sale['Total'].replace(',', '.'))
-      : 0;
-    acc[vendedor].totalVendas += valorVenda;
-    acc[vendedor].pedidosUnicos.add(sale['Pedido']);
+    try {
+      // Tenta converter o valor do Total para número
+      const valorVenda = sale['Total']
+        ? Number(sale['Total'].replace(',', '.'))
+        : 0;
+      
+      if (!isNaN(valorVenda)) {
+        acc[vendedor].totalVendas += valorVenda;
+      }
 
-    const [day, month, year] = sale['Data'].split('/');
-    const saleDate = new Date(year, month - 1, day);
-    if (!acc[vendedor].maxDate || saleDate > acc[vendedor].maxDate) {
-      acc[vendedor].maxDate = saleDate;
-    }
+      acc[vendedor].pedidosUnicos.add(sale['Pedido']);
 
-    const produto = sale['Produto'];
-    if (!acc[vendedor].products[produto]) {
-      acc[vendedor].products[produto] = 0;
-    }
-    acc[vendedor].products[produto] += 1;
+      // Verifica se Data está no formato esperado (DD/MM/YYYY)
+      if (sale['Data'] && sale['Data'].split('/').length === 3) {
+        const [day, month, year] = sale['Data'].split('/');
+        const saleDate = new Date(year, month - 1, day);
+        
+        if (!isNaN(saleDate.getTime())) {
+          if (!acc[vendedor].maxDate || saleDate > acc[vendedor].maxDate) {
+            acc[vendedor].maxDate = saleDate;
+          }
+          
+          const mesAno = `${month}/${year}`;
+          if (!acc[vendedor].vendasPorMes[mesAno]) {
+            acc[vendedor].vendasPorMes[mesAno] = 0;
+          }
+          
+          if (!isNaN(valorVenda)) {
+            acc[vendedor].vendasPorMes[mesAno] += valorVenda;
+          }
+        }
+      }
 
-    const mesAno = `${month}/${year}`;
-    if (!acc[vendedor].vendasPorMes[mesAno]) {
-      acc[vendedor].vendasPorMes[mesAno] = 0;
+      const produto = sale['Produto'];
+      if (produto) {
+        if (!acc[vendedor].products[produto]) {
+          acc[vendedor].products[produto] = 0;
+        }
+        acc[vendedor].products[produto] += 1;
+      }
+    } catch (e) {
+      console.error("Erro ao processar venda:", e, sale);
     }
-    acc[vendedor].vendasPorMes[mesAno] += valorVenda;
 
     return acc;
   }, {});
+
+  
 
   return (
     <Container fluid className="mt-3">
