@@ -4,6 +4,7 @@ import { Accordion, Container, Row, Col, Table, Button, Form, Modal, Spinner, Al
 import OrderModal from "./OrderModal";
 import PerfilVendedor from "./PerfilVendedor";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import Pedidos from "./Pedidos";
 
 const Home = () => {
   const [clients, setClients] = useState([]);
@@ -350,6 +351,8 @@ const Home = () => {
   return (
     <Container className="mt-4">
       <PerfilVendedor data={history} />
+
+      <Pedidos />
 
       <h2 className="mb-4">Clientes</h2>
 

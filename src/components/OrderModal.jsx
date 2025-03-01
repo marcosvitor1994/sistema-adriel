@@ -1,20 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Button, Form, Table, Card, Accordion } from 'react-bootstrap';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { Modal, Button, Form } from 'react-bootstrap';
+import ClientInfo from './ClientInfo';
+import ProductsSection from './ProductsSection';
+import PaymentSection from './PaymentSection';
+import { generatePDF } from './pdfUtils';
 
-const OrderModal = ({ client, isOpen, onClose }) => {
+const OrderModal = ({ client, isOpen, onClose, editMode = false, pedidoData = null, onUpdate = null }) => {
   const [products, setProducts] = useState([]);
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [orderTotal, setOrderTotal] = useState(0);
-  const [orderWeight, setOrderWeight] = useState(0); // Peso total do pedido (em kg)
+  const [orderWeight, setOrderWeight] = useState(0);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-
-  // Estados para forma de pagamento
-  const [paymentMethod, setPaymentMethod] = useState('avista'); // 'avista' ou 'parcelado'
+  const [paymentMethod, setPaymentMethod] = useState('avista');
   const [selectedSchedule, setSelectedSchedule] = useState('15/30/45/60/75');
   const [installmentDates, setInstallmentDates] = useState([]);
-
   const [activeAccordion, setActiveAccordion] = useState(null);
 
   // Faixas para parcelamento
@@ -47,59 +46,45 @@ const OrderModal = ({ client, isOpen, onClose }) => {
     }
   }, [paymentMethod, selectedSchedule]);
 
-  // ----- PARSING DOS PRODUTOS -----
+  // Carrega os dados do pedido se estiver em modo de edição
+  useEffect(() => {
+    if (editMode && pedidoData && products.length > 0) {
+      // Define o método de pagamento
+      setPaymentMethod(pedidoData.parcelamento ? 'parcelado' : 'avista');
+      
+      if (pedidoData.parcelamento) {
+        setSelectedSchedule(pedidoData.parcelamento);
+      }
 
-  // Parse dos produtos de nutrimentos
-  const parseNutriments = (data) => {
-    const rows = data.values;
-    const parsed = [];
-    // Pula cabeçalho
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (row.length < 6) continue;
-      parsed.push({
-        id: `nut-${i}`, // id único
-        name: row[0],
-        type: row[1],
-        kg: parseFloat(row[2].replace(',', '.')) || 0, // peso por unidade (kg)
-        category: 'nutrimentos',
-        tiers: [
-          { threshold: 8, price: parseFloat(row[3].replace(',', '.')) || 0 },
-          { threshold: 15, price: parseFloat(row[4].replace(',', '.')) || 0 },
-          { threshold: Infinity, price: parseFloat(row[5].replace(',', '.')) || 0 },
-        ],
+      // Mapeia os produtos existentes para o formato esperado pelo componente
+      const mappedProducts = pedidoData.produtos.map((prod, index) => {
+        const productId = findProductIdByName(prod.produto);
+        const foundProduct = products.find(p => p.id === productId);
+        
+        return {
+          id: Date.now() + index,
+          product: productId || '',
+          quantity: prod.quantidade,
+          unitPrice: prod.valorUnidade,
+          total: prod.subtotal || (prod.quantidade * prod.valorUnidade),
+          weight: prod.peso || (foundProduct ? foundProduct.kg * prod.quantidade : 0),
+          manualPrice: true, // Assumimos que o preço foi ajustado manualmente
+        };
       });
+
+      setSelectedProducts(mappedProducts);
+      setOrderTotal(pedidoData.total);
+      setOrderWeight(pedidoData.pesoTotal);
     }
-    return parsed;
+  }, [editMode, pedidoData, products]);
+
+  // Encontra o ID do produto pelo nome
+  const findProductIdByName = (productName) => {
+    const product = products.find(p => p.name === productName);
+    return product ? product.id : null;
   };
 
-  // Parse dos produtos de rações
-  const parseRacoes = (data) => {
-    const rows = data.values;
-    const parsed = [];
-    // Pula cabeçalho
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (row.length < 9) continue;
-      parsed.push({
-        id: `rac-${i}`, // id único
-        name: row[0],
-        type: row[1],
-        kg: parseFloat(row[2].replace(',', '.')) || 0, // peso por unidade (kg)
-        category: 'racoes',
-        tiers: [
-          { threshold: 2, price: parseFloat(row[4].replace(',', '.')) || 0 },
-          { threshold: 6, price: parseFloat(row[5].replace(',', '.')) || 0 },
-          { threshold: 10, price: parseFloat(row[6].replace(',', '.')) || 0 },
-          { threshold: 15, price: parseFloat(row[7].replace(',', '.')) || 0 },
-          { threshold: Infinity, price: parseFloat(row[8].replace(',', '.')) || 0 },
-        ],
-      });
-    }
-    return parsed;
-  };
-
-  // Busca os produtos de ambas as rotas e mescla-os
+  // Busca os produtos
   useEffect(() => {
     const fetchProducts = async () => {
       try {
@@ -122,7 +107,53 @@ const OrderModal = ({ client, isOpen, onClose }) => {
     }
   }, [isOpen]);
 
-  // ----- CÁLCULO DO PREÇO E PESO -----
+  // Parse dos produtos de nutrimentos
+  const parseNutriments = (data) => {
+    const rows = data.values;
+    const parsed = [];
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.length < 6) continue;
+      parsed.push({
+        id: `nut-${i}`,
+        name: row[0],
+        type: row[1],
+        kg: parseFloat(row[2].replace(',', '.')) || 0,
+        category: 'nutrimentos',
+        tiers: [
+          { threshold: 8, price: parseFloat(row[3].replace(',', '.')) || 0 },
+          { threshold: 15, price: parseFloat(row[4].replace(',', '.')) || 0 },
+          { threshold: Infinity, price: parseFloat(row[5].replace(',', '.')) || 0 },
+        ],
+      });
+    }
+    return parsed;
+  };
+
+  // Parse dos produtos de rações
+  const parseRacoes = (data) => {
+    const rows = data.values;
+    const parsed = [];
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.length < 9) continue;
+      parsed.push({
+        id: `rac-${i}`,
+        name: row[0],
+        type: row[1],
+        kg: parseFloat(row[2].replace(',', '.')) || 0,
+        category: 'racoes',
+        tiers: [
+          { threshold: 2, price: parseFloat(row[4].replace(',', '.')) || 0 },
+          { threshold: 6, price: parseFloat(row[5].replace(',', '.')) || 0 },
+          { threshold: 10, price: parseFloat(row[6].replace(',', '.')) || 0 },
+          { threshold: 15, price: parseFloat(row[7].replace(',', '.')) || 0 },
+          { threshold: Infinity, price: parseFloat(row[8].replace(',', '.')) || 0 },
+        ],
+      });
+    }
+    return parsed;
+  };
 
   // Dado um produto e o peso total do pedido (em toneladas), retorna o preço unitário do tier
   const computePrice = (product, orderWeightTon) => {
@@ -135,7 +166,7 @@ const OrderModal = ({ client, isOpen, onClose }) => {
     return 0;
   };
 
-  // Recalcula o pedido: total financeiro, peso total e, se o preço não for manual, recalcula o valor unitário.
+  // Recalcula o pedido: total financeiro, peso total e preços unitários
   const recalcOrder = (updatedProducts) => {
     let totalKg = 0;
     // Calcula o peso total (em kg)
@@ -146,7 +177,7 @@ const OrderModal = ({ client, isOpen, onClose }) => {
       }
     });
     const orderWeightTon = totalKg / 1000;
-    // Atualiza cada item: unitPrice (se não editado manualmente), total e peso da linha.
+    // Atualiza cada item
     const recalculated = updatedProducts.map(item => {
       const prod = products.find(p => p.id === item.product);
       if (prod && item.quantity) {
@@ -156,7 +187,7 @@ const OrderModal = ({ client, isOpen, onClose }) => {
           ...item,
           unitPrice: newUnitPrice,
           total: item.quantity * newUnitPrice,
-          weight: lineWeight, // peso da linha (kg)
+          weight: lineWeight,
         };
       }
       return item;
@@ -202,7 +233,6 @@ const OrderModal = ({ client, isOpen, onClose }) => {
       },
     ];
     setSelectedProducts(newProducts);
-    // Define o índice do novo produto como ativo
     setActiveAccordion(String(newProducts.length - 1));
   };
 
@@ -211,334 +241,110 @@ const OrderModal = ({ client, isOpen, onClose }) => {
     recalcOrder(updated);
   };
 
-  // ----- GERAÇÃO E COMPARTILHAMENTO DO PDF -----
-  const generateAndSharePDF = (orderData) => {
-    const doc = new jsPDF();
-  
-    doc.setFontSize(18);
-    doc.text('Pedido', 14, 22);
-  
-    doc.setFontSize(12);
-    doc.text(`Cliente: ${client.Cliente}`, 14, 32);
-    doc.text(`CNPJ: ${client.CNPJ}`, 14, 40);
-    doc.text(`Endereço: ${client.Endereco}`, 14, 48);
-    doc.text(`Telefone: ${client.Telefone}`, 14, 56);
-    doc.text(`Data: ${new Date().toLocaleDateString()}`, 14, 64);
-  
-    let paymentY = 72;
-    doc.text(`Forma de Pagamento: ${paymentMethod === 'avista' ? 'À Vista' : 'Parcelado'}`, 14, paymentY);
-    if (paymentMethod === 'parcelado') {
-      doc.text(`Opção de Parcelamento: ${selectedSchedule}`, 14, paymentY + 8);
-      installmentDates.forEach((date, index) => {
-        doc.text(`Parcela ${index + 1} vence em: ${date}`, 14, paymentY + 16 + (index * 8));
-      });
-      paymentY += 16 + installmentDates.length * 8;
-    } else {
-      paymentY += 8;
-    }
-  
-    const tableColumn = ["Produto", "Qtd", "Peso (kg)", "Valor Unit.", "Total"];
-    const tableRows = [];
-  
-    orderData.products.forEach(item => {
-      const prodInfo = products.find(p => p.id === item.product);
-      const prodName = prodInfo ? prodInfo.name : 'Não definido';
-      const rowData = [
-        prodName,
-        item.quantity.toString(),
-        item.weight ? item.weight.toFixed(2) : '0',
-        `R$ ${item.unitPrice.toFixed(2)}`,
-        `R$ ${item.total.toFixed(2)}`
-      ];
-      tableRows.push(rowData);
-    });
-  
-    doc.autoTable({
-      startY: paymentY + 6,
-      head: [tableColumn],
-      body: tableRows,
-    });
-  
-    const finalY = doc.lastAutoTable.finalY || paymentY + 6;
-    doc.text(`Total do Pedido: R$ ${orderData.total.toFixed(2)}`, 14, finalY + 10);
-    doc.text(`Peso Total: ${orderData.weight.toFixed(2)} kg`, 14, finalY + 18);
-  
-    // Gera o Blob do PDF e converte para File para a Web Share API
-    const pdfBlob = doc.output('blob');
-    const pdfFile = new File([pdfBlob], 'pedido.pdf', { type: 'application/pdf' });
-    
-    // Se o navegador suportar compartilhamento de arquivos
-    if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-      navigator.share({
-        title: 'Pedido',
-        text: `Segue o pedido de ${client.Cliente}`,
-        files: [pdfFile],
-      })
-      .then(() => console.log('PDF compartilhado com sucesso!'))
-      .catch((error) => console.error('Erro ao compartilhar o PDF:', error));
-    } else {
-      // Fallback: Download do PDF
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(pdfBlob);
-      link.download = 'pedido.pdf';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-  };
-
-  // ----- RENDERIZAÇÃO DOS ITENS (RESPONSIVA) -----
-  const renderProductItems = () => {
-    if (windowWidth < 768) {
-      return (
-        <Accordion activeKey={activeAccordion} className="mb-3" onSelect={(key) => setActiveAccordion(key)}>
-          {selectedProducts.map((item, index) => (
-            <Accordion.Item key={item.id} eventKey={String(index)}>
-              <Accordion.Header>
-                <div className="d-flex justify-content-between w-100 align-items-center pe-3">
-                  <div>
-                    {(() => {
-                      const prod = products.find(p => p.id === item.product);
-                      return prod 
-                        ? `${prod.name} - ${item.quantity} unid.` 
-                        : 'Produto não selecionado';
-                    })()}
-                  </div>
-                  <div className="text-end text-muted">
-                    R$ {item.total.toFixed(2)}
-                  </div>
-                </div>
-              </Accordion.Header>
-                <Accordion.Body>
-                  <Form.Group className="mb-2">
-                    <Form.Label>Produto</Form.Label>
-                    <Form.Select
-                      value={item.product}
-                      onChange={(e) => {
-                        e.stopPropagation(); // Evita que o evento de mudança afete o accordion
-                        updateProduct(index, 'product', e.target.value);
-                      }}
-                      className="striped-options"
-                    >
-                      <option value="">Selecione um produto</option>
-                      {products.map((product, index) => (
-                        <option key={product.id} value={product.id}>
-                          {product.name} - {product.type} - {product.kg}kg
-                        </option>
-                      ))}
-                    </Form.Select>
-                  </Form.Group>
-                  
-                  <Form.Group className="mb-2">
-                    <Form.Label>Quantidade</Form.Label>
-                    <Form.Control
-                      type="number"
-                      value={item.quantity}
-                      onChange={(e) => updateProduct(index, 'quantity', parseFloat(e.target.value) || 0)}
-                    />
-                  </Form.Group>
-                  
-                  <div className="mb-2">
-                    <strong>Peso da Linha:</strong> {item.weight ? item.weight.toFixed(2) : '0'} kg
-                  </div>
-                  
-                  <Form.Group className="mb-2">
-                    <Form.Label>Valor Unitário</Form.Label>
-                    <Form.Control
-                      type="number"
-                      value={item.unitPrice}
-                      onChange={(e) => updateProduct(index, 'unitPrice', parseFloat(e.target.value) || 0)}
-                    />
-                    <small className="text-muted">
-                      (Calculado automaticamente, edite se necessário)
-                    </small>
-                  </Form.Group>
-                  
-                  <div className="d-flex justify-content-between align-items-center mt-2">
-                    <div>
-                      <strong>Total:</strong> R$ {item.total.toFixed(2)}
-                    </div>
-                    <Button variant="danger" size="sm" onClick={() => removeProduct(index)}>
-                      Remover
-                    </Button>
-                  </div>
-                </Accordion.Body>
-            </Accordion.Item>
-          ))}
-        </Accordion>
-      );
-    } else {
-      return (
-        <Table responsive striped bordered hover className="mb-4">
-          <thead>
-            <tr>
-              <th>Produto</th>
-              <th>Qtd</th>
-              <th>Peso (kg)</th>
-              <th>Valor Unit.</th>
-              <th>Total</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {selectedProducts.map((item, index) => (
-              <tr key={item.id}>
-                <td>
-                <Form.Select
-                  value={item.product}
-                  onChange={(e) => updateProduct(index, 'product', e.target.value)}
-                  className="striped-options"
-                >
-                  <option value="">Selecione um produto</option>
-                  {products.map((product, index) => (
-                    <option key={product.id} value={product.id}>
-                      {product.name} - {product.type} - {product.kg}kg
-                    </option>
-                  ))}
-                </Form.Select>
-                </td>
-                <td>
-                  <Form.Control
-                    type="number"
-                    value={item.quantity}
-                    onChange={(e) => updateProduct(index, 'quantity', parseFloat(e.target.value) || 0)}
-                  />
-                </td>
-                <td>{item.weight ? item.weight.toFixed(2) : '0'}</td>
-                <td>
-                  <Form.Control
-                    type="number"
-                    value={item.unitPrice}
-                    onChange={(e) => updateProduct(index, 'unitPrice', parseFloat(e.target.value) || 0)}
-                  />
-                </td>
-                <td>R$ {item.total.toFixed(2)}</td>
-                <td>
-                  <Button variant="danger" size="sm" onClick={() => removeProduct(index)}>
-                    Remover
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      );
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+  
+    // Mapeia os produtos para o formato esperado pelo banco de dados
+    const produtos = selectedProducts.map(item => {
+      const prod = products.find(p => p.id === item.product);
+      return {
+        produto: prod ? prod.name : 'Não definido',
+        quantidade: item.quantity,
+        peso: item.weight,
+        valorUnidade: item.unitPrice,
+        subtotal: item.total,
+      };
+    });
+  
     const orderData = {
-      clientId: client.id,
-      products: selectedProducts,
+      cliente: client.Cliente,
+      cnpj: client.CNPJ,
+      endereco: client.Endereco,
+      telefone: client.Telefone,
+      data: new Date().toISOString(),
+      produtos: produtos,
+      parcelamento: paymentMethod === 'parcelado' ? selectedSchedule : '',
       total: orderTotal,
-      weight: orderWeight, // peso total em kg
-      date: new Date().toISOString(),
-      paymentMethod,
-      installmentSchedule: paymentMethod === 'parcelado' ? selectedSchedule : null,
-      installmentDates: paymentMethod === 'parcelado' ? installmentDates : [],
+      pesoTotal: orderWeight,
+      status: editMode && pedidoData ? pedidoData.status : "Aguardando" // Define o status como "Aguardando" para novos pedidos
     };
-
-    // Gera e compartilha (ou baixa) o PDF com os dados do pedido
-    generateAndSharePDF(orderData);
+  
+    if (editMode && pedidoData) {
+      // Estamos editando um pedido existente
+      const updatedPedido = {
+        ...pedidoData,
+        ...orderData
+      };
+      
+      if (onUpdate) {
+        onUpdate(updatedPedido);
+      }
+    } else {
+      // Estamos criando um novo pedido
+      try {
+        const response = await fetch('https://y-liard-eight.vercel.app/pedido', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(orderData)
+        });
+    
+        if (!response.ok) {
+          throw new Error('Erro ao salvar o pedido no banco de dados');
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    
+      // Gera e compartilha o PDF com os dados do pedido
+      generatePDF(orderData);
+    }
+    
     onClose();
   };
 
   return (
     <Modal show={isOpen} onHide={onClose} size="xl" className="order-modal">
-      <Modal.Header closeButton>
-        <Modal.Title>Novo Pedido</Modal.Title>
+      <Modal.Header closeButton className="bg-primary text-white">
+        <Modal.Title>{editMode ? 'Editar Pedido' : 'Novo Pedido'}</Modal.Title>
       </Modal.Header>
       
       <Modal.Body>
-        <Form onSubmit={handleSubmit}>
+        <Form>
           {/* Informações do Cliente */}
-          <div className="mb-4">
-            <h5 className="mb-3">Informações do Cliente</h5>
-            <Form.Group className="mb-3">
-              <Form.Label>Nome</Form.Label>
-              <Form.Control type="text" value={client.Cliente} disabled />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>CNPJ</Form.Label>
-              <Form.Control type="text" value={client.CNPJ} disabled />
-            </Form.Group>
-            <div className="row">
-              <div className="col-md-6">
-                <Form.Group className="mb-3">
-                  <Form.Label>Endereço</Form.Label>
-                  <Form.Control type="text" value={client.Endereco} disabled />
-                </Form.Group>
-              </div>
-              <div className="col-md-6">
-                <Form.Group className="mb-3">
-                  <Form.Label>Telefone</Form.Label>
-                  <Form.Control type="text" value={client.Telefone} disabled />
-                </Form.Group>
-              </div>
-            </div>
-          </div>
+          <ClientInfo client={client} />
 
           {/* Produtos */}
-          <h5 className="mb-3">Produtos</h5>
-          {renderProductItems()}
-          <Button variant="primary" onClick={addProductToOrder} className="mb-4 mt-2">
-            Adicionar Produto
-          </Button>
-
-          {/* Totais do Pedido */}
-          <div className="d-flex justify-content-between align-items-center mt-4">
-            <div className="h4 mb-0">Total: R$ {orderTotal.toFixed(2)}</div>
-            <div className="h5 mb-0">Peso Total: {orderWeight.toFixed(2)} kg</div>
-          </div>
+          <ProductsSection 
+            products={products}
+            selectedProducts={selectedProducts}
+            windowWidth={windowWidth}
+            activeAccordion={activeAccordion}
+            setActiveAccordion={setActiveAccordion}
+            updateProduct={updateProduct}
+            removeProduct={removeProduct}
+            addProductToOrder={addProductToOrder}
+            orderTotal={orderTotal}
+            orderWeight={orderWeight}
+          />
 
           {/* Opções de Pagamento */}
-          <div className="mt-4">
-            <h5 className="mb-3">Forma de Pagamento</h5>
-            <Form.Group className="mb-3">
-              <div>
-                <Form.Check
-                  className="mb-2"
-                  type="radio"
-                  label="À Vista"
-                  name="paymentMethod"
-                  value="avista"
-                  checked={paymentMethod === 'avista'}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                />
-                <Form.Check
-                  type="radio"
-                  label="Parcelado"
-                  name="paymentMethod"
-                  value="parcelado"
-                  checked={paymentMethod === 'parcelado'}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                />
-              </div>
-            </Form.Group>
-            {paymentMethod === 'parcelado' && (
-              <Form.Group className="mb-3">
-                <Form.Label>Opção de Parcelamento</Form.Label>
-                <Form.Select
-                  value={selectedSchedule}
-                  onChange={(e) => setSelectedSchedule(e.target.value)}
-                >
-                  {Object.keys(installmentOptions).map((option, idx) => (
-                    <option key={idx} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </Form.Select>
-              </Form.Group>
-            )}
-          </div>
+          <PaymentSection 
+            paymentMethod={paymentMethod}
+            setPaymentMethod={setPaymentMethod}
+            selectedSchedule={selectedSchedule}
+            setSelectedSchedule={setSelectedSchedule}
+            installmentOptions={installmentOptions}
+          />
         </Form>
       </Modal.Body>
 
       <Modal.Footer>
         <Button variant="secondary" onClick={onClose}>Cancelar</Button>
-        <Button variant="primary" onClick={handleSubmit}>Salvar Pedido</Button>
+        <Button variant="primary" type="submit" onClick={handleSubmit}>
+          {editMode ? 'Atualizar Pedido' : 'Salvar Pedido'}
+        </Button>
       </Modal.Footer>
     </Modal>
   );
